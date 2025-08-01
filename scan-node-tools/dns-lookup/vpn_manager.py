@@ -34,13 +34,20 @@ class VPNManager:
             return None
     
     def connect_vpn(self, vpn_file):
-        """Kết nối VPN"""
+        """Kết nối VPN với network configuration"""
         print(f"[+] Kết nối VPN: {vpn_file}")
         try:
+            # Thêm các options để force routing qua VPN
             self.vpn_process = subprocess.Popen([
                 "openvpn", "--config", vpn_file,
                 "--data-ciphers", "AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC",
-                "--verb", "1"
+                "--redirect-gateway", "def1",  # Force all traffic through VPN
+                "--pull-filter", "ignore", "redirect-gateway",  # Ignore server redirect-gateway
+                "--pull-filter", "accept", "route",  # Accept routes from server
+                "--script-security", "2",
+                "--up", "/etc/openvpn/update-resolv-conf",
+                "--down", "/etc/openvpn/update-resolv-conf",
+                "--verb", "3"
             ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
             # Đợi VPN kết nối (tối đa 30 giây)
@@ -48,9 +55,12 @@ class VPNManager:
                 if self.is_vpn_connected():
                     print("[+] VPN đã kết nối thành công!")
                     
-                    # Đợi thêm 5 giây cho routing tables update
+                    # Setup routing manually để đảm bảo traffic đi qua VPN
+                    self._setup_vpn_routing()
+                    
+                    # Đợi thêm 10 giây cho routing stabilize
                     print("[*] Đợi routing tables cập nhật...")
-                    time.sleep(5)
+                    time.sleep(10)
                     
                     return True
                 time.sleep(1)
@@ -73,6 +83,29 @@ class VPNManager:
         except:
             return False
     
+    def _setup_vpn_routing(self):
+        """Setup routing để force traffic qua VPN"""
+        try:
+            print("[*] Thiết lập VPN routing...")
+            
+            # Lấy VPN gateway
+            result = subprocess.run(['ip', 'route', 'show', 'dev', 'tun0'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                # Thêm route cho DNS servers
+                subprocess.run(['ip', 'route', 'add', '8.8.8.8', 'dev', 'tun0'], 
+                             capture_output=True)
+                subprocess.run(['ip', 'route', 'add', '8.8.4.4', 'dev', 'tun0'], 
+                             capture_output=True)
+                
+                # Set tun0 có metric thấp hơn để ưu tiên
+                subprocess.run(['ip', 'route', 'change', 'default', 'dev', 'tun0', 'metric', '50'], 
+                             capture_output=True)
+                
+                print("[+] VPN routing setup completed")
+        except Exception as e:
+            print(f"[!] Lỗi setup VPN routing: {e}")
+    
     def disconnect_vpn(self):
         """Ngắt kết nối VPN"""
         if self.vpn_process and self.vpn_process.poll() is None:
@@ -89,6 +122,9 @@ class VPNManager:
         # Lấy IP ban đầu
         original_ip = self.get_current_ip()
         print(f"[*] IP ban đầu: {original_ip}")
+        
+        # Kiểm tra môi trường container
+        self._check_container_capabilities()
         
         vpns = self.fetch_vpns()
         if not vpns:
@@ -118,6 +154,35 @@ class VPNManager:
         print("[!] Không thể kết nối VPN nào")
         return False
     
+    def _check_container_capabilities(self):
+        """Kiểm tra khả năng networking của container"""
+        print("[*] Checking container networking capabilities...")
+        
+        # Check if we can create TUN devices
+        try:
+            result = subprocess.run(['ls', '/dev/net/tun'], capture_output=True, text=True)
+            tun_available = result.returncode == 0
+            print(f"[*] TUN device: {'✓' if tun_available else '✗'}")
+        except:
+            print("[*] TUN device: ✗")
+        
+        # Check NET_ADMIN capability
+        try:
+            result = subprocess.run(['ip', 'route', 'show'], capture_output=True, text=True)
+            routing_ok = result.returncode == 0
+            print(f"[*] Routing access: {'✓' if routing_ok else '✗'}")
+        except:
+            print("[*] Routing access: ✗")
+        
+        # Check external connectivity
+        try:
+            result = subprocess.run(['ping', '-c', '1', '-W', '3', '8.8.8.8'], 
+                                  capture_output=True, text=True, timeout=5)
+            external_ok = result.returncode == 0
+            print(f"[*] External connectivity: {'✓' if external_ok else '✗'}")
+        except:
+            print("[*] External connectivity: ✗")
+    
     def is_vpn_working(self):
         """Kiểm tra VPN có thực sự hoạt động không"""
         checks = []
@@ -126,63 +191,103 @@ class VPNManager:
         tun_ok = self.is_vpn_connected()
         checks.append(f"TUN interface: {'✓' if tun_ok else '✗'}")
         
-        # 2. Kiểm tra có default route qua VPN không
+        # 2. Kiểm tra có TUN interface trong routing
+        route_ok = False
         try:
-            result = subprocess.run(['ip', 'route', 'show', 'default'], 
+            result = subprocess.run(['ip', 'route', 'show'], 
                                   capture_output=True, text=True)
-            route_ok = 'tun' in result.stdout
+            route_ok = 'tun0' in result.stdout
             checks.append(f"VPN routing: {'✓' if route_ok else '✗'}")
         except:
-            route_ok = False
             checks.append("VPN routing: ✗")
         
-        # 3. Test DNS resolution qua VPN
+        # 3. Test external connectivity qua VPN
+        connectivity_ok = False
+        try:
+            # Thử ping qua tun0 interface
+            result = subprocess.run(['ping', '-I', 'tun0', '-c', '1', '-W', '5', '8.8.8.8'], 
+                                  capture_output=True, text=True, timeout=10)
+            connectivity_ok = result.returncode == 0
+            checks.append(f"VPN connectivity: {'✓' if connectivity_ok else '✗'}")
+        except:
+            checks.append("VPN connectivity: ✗")
+        
+        # 4. Test DNS resolution
+        dns_ok = False
         try:
             result = subprocess.run(['nslookup', 'google.com'], 
                                   capture_output=True, text=True, timeout=5)
-            dns_ok = result.returncode == 0
+            dns_ok = result.returncode == 0 and 'google.com' in result.stdout
             checks.append(f"DNS test: {'✓' if dns_ok else '✗'}")
         except:
-            dns_ok = False
             checks.append("DNS test: ✗")
             
         print(f"[*] VPN Health Check: {' | '.join(checks)}")
         
-        # VPN được coi là hoạt động nếu có TUN interface và ít nhất 1 test khác pass
-        return tun_ok and (route_ok or dns_ok)
+        # VPN được coi là hoạt động nếu có TUN interface và connectivity hoặc DNS working
+        return tun_ok and (connectivity_ok or dns_ok)
     
     def get_current_ip(self):
-        """Lấy IP hiện tại - thử nhiều method"""
-        methods = [
-            ['curl', '-s', '--max-time', '5', 'https://api.ipify.org'],
-            ['curl', '-s', '--max-time', '5', 'http://ipinfo.io/ip'],
-            ['curl', '-s', '--max-time', '5', 'http://checkip.amazonaws.com'],
-            ['wget', '-qO-', '--timeout=5', 'https://api.ipify.org']
+        """Lấy IP hiện tại - ưu tiên external IP services"""
+        # Trước tiên thử get IP từ VPN interface
+        vpn_ip = self._get_vpn_interface_ip()
+        if vpn_ip:
+            print(f"[*] Detected VPN interface IP: {vpn_ip}")
+        
+        # Thử các external services
+        external_methods = [
+            (['curl', '-s', '--max-time', '10', '--interface', 'tun0', 'https://api.ipify.org'], 'tun0'),
+            (['curl', '-s', '--max-time', '10', 'https://api.ipify.org'], 'default'),
+            (['curl', '-s', '--max-time', '10', 'http://ipinfo.io/ip'], 'default'),
+            (['curl', '-s', '--max-time', '10', 'http://checkip.amazonaws.com'], 'default'),
+            (['wget', '-qO-', '--timeout=10', 'https://api.ipify.org'], 'default')
         ]
         
-        for method in methods:
+        for method, interface in external_methods:
             try:
-                result = subprocess.run(method, capture_output=True, text=True, timeout=10)
+                print(f"[*] Trying IP detection via {interface}: {' '.join(method[:3])}")
+                result = subprocess.run(method, capture_output=True, text=True, timeout=15)
                 if result.returncode == 0 and result.stdout.strip():
                     ip = result.stdout.strip()
-                    # Validate IP format
                     if self._is_valid_ip(ip):
+                        print(f"[+] External IP detected: {ip}")
                         return ip
-            except:
+                else:
+                    print(f"[!] Method failed: {result.stderr.strip() if result.stderr else 'No output'}")
+            except Exception as e:
+                print(f"[!] Method error: {e}")
                 continue
+        
+        # Fallback to VPN interface IP if external detection fails
+        if vpn_ip:
+            return vpn_ip
                 
-        # Fallback: check local interface IPs
+        # Last fallback: check local interface IPs
         try:
             result = subprocess.run(['hostname', '-I'], capture_output=True, text=True)
             if result.returncode == 0:
                 ips = result.stdout.strip().split()
                 for ip in ips:
-                    if self._is_valid_ip(ip) and not ip.startswith('127.'):
+                    if self._is_valid_ip(ip) and not ip.startswith('127.') and not ip.startswith('10.244.'):
                         return ip
         except:
             pass
             
         return "Unknown"
+    
+    def _get_vpn_interface_ip(self):
+        """Lấy IP từ VPN interface"""
+        try:
+            result = subprocess.run(['ip', 'addr', 'show', 'tun0'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    if 'inet ' in line and 'scope global' in line:
+                        return line.split()[1].split('/')[0]
+        except:
+            pass
+        return None
     
     def _is_valid_ip(self, ip):
         """Kiểm tra IP hợp lệ"""
