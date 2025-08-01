@@ -153,18 +153,34 @@ class VPNManager:
             subprocess.run(['cp', '/etc/resolv.conf', '/etc/resolv.conf.backup'], 
                          capture_output=True)
             
-            # Create new resolv.conf with VPN DNS + Kubernetes DNS
-            dns_config = """# VPN + Kubernetes DNS
+            # Get original Kubernetes DNS for backup
+            original_dns = ""
+            try:
+                with open('/etc/resolv.conf.backup', 'r') as f:
+                    original_dns = f.read()
+            except:
+                pass
+            
+            # Create new resolv.conf with both VPN DNS and Kubernetes DNS
+            dns_config = """# VPN + Kubernetes DNS - Hybrid Config
+nameserver 10.96.0.10
 nameserver 8.8.8.8
 nameserver 8.8.4.4
-nameserver 10.96.0.10
 search scan-system.svc.cluster.local svc.cluster.local cluster.local
-options timeout:2 attempts:3
+options timeout:2 attempts:3 rotate
 """
+            
+            # If we have original K8s DNS, preserve it too
+            if "nameserver 10.96.0.10" not in original_dns and "nameserver" in original_dns:
+                # Extract original nameservers
+                for line in original_dns.split('\n'):
+                    if line.startswith('nameserver') and '10.96.0.10' not in line:
+                        dns_config += line + '\n'
+            
             with open('/etc/resolv.conf', 'w') as f:
                 f.write(dns_config)
             
-            print("[+] DNS setup completed")
+            print("[+] DNS setup completed - K8s DNS first, then VPN DNS")
             
         except Exception as e:
             print(f"[!] Error setting up DNS: {e}")
