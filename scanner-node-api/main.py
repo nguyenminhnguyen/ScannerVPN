@@ -51,9 +51,18 @@ def _create_job(req: ScanRequest):
         client.V1EnvVar(name="TARGETS", value=",".join(req.targets))
     ]
     
-    # Thêm controller callback URL nếu có
+    # Thêm controller callback URL - ưu tiên external URL
     if req.controller_callback_url:
-        env_vars.append(client.V1EnvVar(name="CONTROLLER_CALLBACK_URL", value=req.controller_callback_url))
+        # Convert internal service URL to external IP if needed
+        callback_url = req.controller_callback_url
+        if "controller.scan-system.svc.cluster.local" in callback_url:
+            # Get external controller IP from environment or use default
+            external_controller_ip = os.getenv("EXTERNAL_CONTROLLER_IP", "10.102.199.42")  # Ubuntu VM IP
+            callback_url = callback_url.replace(
+                "controller.scan-system.svc.cluster.local", 
+                external_controller_ip
+            )
+        env_vars.append(client.V1EnvVar(name="CONTROLLER_CALLBACK_URL", value=callback_url))
     
     # Thêm job ID nếu có
     if req.job_id:

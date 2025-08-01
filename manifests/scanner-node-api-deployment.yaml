@@ -27,6 +27,8 @@ spec:
             value: latest
           - name: NAMESPACE
             value: scan-system
+          - name: EXTERNAL_CONTROLLER_IP
+            value: "192.168.1.100"  # Thay bằng IP thực tế của VM1
           ports:
             - containerPort: 8000
           readinessProbe:

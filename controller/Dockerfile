@@ -1,12 +1,12 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-# Copy cả tools.yaml và requirements
-COPY requirements.txt tools.yaml ./
+# Copy cả tools.yaml và requirements từ controller directory
+COPY controller/requirements.txt controller/tools.yaml ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy code ứng dụng
-COPY app/ ./app/
+# Copy code ứng dụng từ controller/app
+COPY controller/app/ ./app/
 
 # Tạo thư mục /data để chứa SQLite file
 RUN mkdir /data && chmod a+rwx /data
