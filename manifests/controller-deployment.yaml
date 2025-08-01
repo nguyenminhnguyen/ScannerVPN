@@ -1,0 +1,35 @@
+# manifests/controller-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller
+  namespace: scan-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controller
+  template:
+    metadata:
+      labels:
+        app: controller
+    spec:
+      containers:
+      - name: controller
+        image: nguyenminhnguyen/controller:latest
+        imagePullPolicy: Never
+        env:
+        - name: DATABASE_URL
+          value: sqlite:////data/scan_results.db
+        - name: SCANNER_NODE_URL
+          value: http://scanner-node-api.scan-system.svc.cluster.local:8000
+        - name: CONTROLLER_CALLBACK_URL
+          value: http://controller.scan-system.svc.cluster.local:8000
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        emptyDir: {}

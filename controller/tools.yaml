@@ -1,0 +1,10 @@
+tools:
+  - name: dns-lookup
+    image: nguyenminhnguyen/dns-lookup:latest
+    args: ["--domain"]
+  - name: port-scan
+    image: nguyenminhnguyen/port-scan:latest
+    args: ["--target"]
+  - name: httpx-scan
+    image: nguyenminhnguyen/httpx-scan:latest
+    args: ["--url"]
