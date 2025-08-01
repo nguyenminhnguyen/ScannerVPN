@@ -47,6 +47,11 @@ class VPNManager:
             for i in range(30):
                 if self.is_vpn_connected():
                     print("[+] VPN đã kết nối thành công!")
+                    
+                    # Đợi thêm 5 giây cho routing tables update
+                    print("[*] Đợi routing tables cập nhật...")
+                    time.sleep(5)
+                    
                     return True
                 time.sleep(1)
                 
@@ -101,27 +106,91 @@ class VPNManager:
                 new_ip = self.get_current_ip()
                 print(f"[+] IP sau VPN: {new_ip}")
                 
-                if new_ip != original_ip and new_ip != "Unknown":
-                    print(f"[+] VPN thành công! IP thay đổi: {original_ip} -> {new_ip}")
+                # Kiểm tra VPN có hoạt động không
+                if self.is_vpn_working():
+                    print(f"[+] VPN hoạt động tốt! IP: {original_ip} -> {new_ip}")
                     return True
                 else:
-                    print(f"[!] IP không thay đổi, VPN có thể chưa hoạt động")
+                    print(f"[!] VPN chưa hoạt động đúng, thử tiếp...")
                     self.disconnect_vpn()
                     continue
                 
         print("[!] Không thể kết nối VPN nào")
         return False
     
-    def get_current_ip(self):
-        """Lấy IP hiện tại"""
+    def is_vpn_working(self):
+        """Kiểm tra VPN có thực sự hoạt động không"""
+        checks = []
+        
+        # 1. Kiểm tra TUN interface
+        tun_ok = self.is_vpn_connected()
+        checks.append(f"TUN interface: {'✓' if tun_ok else '✗'}")
+        
+        # 2. Kiểm tra có default route qua VPN không
         try:
-            result = subprocess.run(['curl', '-s', 'https://api.ipify.org'], 
-                                  capture_output=True, text=True, timeout=10)
+            result = subprocess.run(['ip', 'route', 'show', 'default'], 
+                                  capture_output=True, text=True)
+            route_ok = 'tun' in result.stdout
+            checks.append(f"VPN routing: {'✓' if route_ok else '✗'}")
+        except:
+            route_ok = False
+            checks.append("VPN routing: ✗")
+        
+        # 3. Test DNS resolution qua VPN
+        try:
+            result = subprocess.run(['nslookup', 'google.com'], 
+                                  capture_output=True, text=True, timeout=5)
+            dns_ok = result.returncode == 0
+            checks.append(f"DNS test: {'✓' if dns_ok else '✗'}")
+        except:
+            dns_ok = False
+            checks.append("DNS test: ✗")
+            
+        print(f"[*] VPN Health Check: {' | '.join(checks)}")
+        
+        # VPN được coi là hoạt động nếu có TUN interface và ít nhất 1 test khác pass
+        return tun_ok and (route_ok or dns_ok)
+    
+    def get_current_ip(self):
+        """Lấy IP hiện tại - thử nhiều method"""
+        methods = [
+            ['curl', '-s', '--max-time', '5', 'https://api.ipify.org'],
+            ['curl', '-s', '--max-time', '5', 'http://ipinfo.io/ip'],
+            ['curl', '-s', '--max-time', '5', 'http://checkip.amazonaws.com'],
+            ['wget', '-qO-', '--timeout=5', 'https://api.ipify.org']
+        ]
+        
+        for method in methods:
+            try:
+                result = subprocess.run(method, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0 and result.stdout.strip():
+                    ip = result.stdout.strip()
+                    # Validate IP format
+                    if self._is_valid_ip(ip):
+                        return ip
+            except:
+                continue
+                
+        # Fallback: check local interface IPs
+        try:
+            result = subprocess.run(['hostname', '-I'], capture_output=True, text=True)
             if result.returncode == 0:
-                return result.stdout.strip()
+                ips = result.stdout.strip().split()
+                for ip in ips:
+                    if self._is_valid_ip(ip) and not ip.startswith('127.'):
+                        return ip
         except:
             pass
+            
         return "Unknown"
+    
+    def _is_valid_ip(self, ip):
+        """Kiểm tra IP hợp lệ"""
+        try:
+            parts = ip.split('.')
+            return len(parts) == 4 and all(0 <= int(part) <= 255 for part in parts)
+        except:
+            return False
     
     def get_network_info(self):
         """Lấy thông tin network chi tiết"""
