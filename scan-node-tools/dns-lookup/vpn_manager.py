@@ -81,6 +81,10 @@ class VPNManager:
     
     def setup_random_vpn(self):
         """Setup VPN ngẫu nhiên"""
+        # Lấy IP ban đầu
+        original_ip = self.get_current_ip()
+        print(f"[*] IP ban đầu: {original_ip}")
+        
         vpns = self.fetch_vpns()
         if not vpns:
             print("[!] Không có VPN nào available")
@@ -93,7 +97,17 @@ class VPNManager:
             
             vpn_path = self.download_vpn(chosen_vpn)
             if vpn_path and self.connect_vpn(vpn_path):
-                return True
+                # Kiểm tra IP sau khi kết nối
+                new_ip = self.get_current_ip()
+                print(f"[+] IP sau VPN: {new_ip}")
+                
+                if new_ip != original_ip and new_ip != "Unknown":
+                    print(f"[+] VPN thành công! IP thay đổi: {original_ip} -> {new_ip}")
+                    return True
+                else:
+                    print(f"[!] IP không thay đổi, VPN có thể chưa hoạt động")
+                    self.disconnect_vpn()
+                    continue
                 
         print("[!] Không thể kết nối VPN nào")
         return False
@@ -108,3 +122,46 @@ class VPNManager:
         except:
             pass
         return "Unknown"
+    
+    def get_network_info(self):
+        """Lấy thông tin network chi tiết"""
+        info = {
+            "public_ip": self.get_current_ip(),
+            "tun_interface": False,
+            "local_ip": None,
+            "default_route": None
+        }
+        
+        try:
+            # Kiểm tra tun interface
+            result = subprocess.run(['ip', 'addr', 'show', 'tun0'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                info["tun_interface"] = True
+                # Extract local IP từ tun0
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    if 'inet ' in line and 'scope global' in line:
+                        info["local_ip"] = line.split()[1].split('/')[0]
+            
+            # Kiểm tra default route
+            result = subprocess.run(['ip', 'route', 'show', 'default'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                info["default_route"] = result.stdout.strip()
+                
+        except Exception as e:
+            print(f"[!] Error getting network info: {e}")
+            
+        return info
+    
+    def print_vpn_status(self):
+        """In trạng thái VPN hiện tại"""
+        info = self.get_network_info()
+        print(f"[*] === VPN Status ===")
+        print(f"[*] Public IP: {info['public_ip']}")
+        print(f"[*] TUN Interface: {'✓' if info['tun_interface'] else '✗'}")
+        print(f"[*] Local VPN IP: {info['local_ip'] or 'N/A'}")
+        print(f"[*] Default Route: {info['default_route'] or 'N/A'}")
+        print(f"[*] VPN Process: {'Running' if self.vpn_process and self.vpn_process.poll() is None else 'Stopped'}")
+        return info

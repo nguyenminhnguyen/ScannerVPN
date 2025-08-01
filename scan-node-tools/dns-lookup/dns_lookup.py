@@ -23,12 +23,18 @@ if __name__ == "__main__":
     # Setup VPN trước khi scan
     vpn_manager = VPNManager()
     vpn_connected = False
+    network_info = {}
     
     # Thử setup VPN (optional - có thể skip nếu proxy server không available)
     try:
+        print("[*] Checking initial network status...")
+        initial_info = vpn_manager.get_network_info()
+        print(f"[*] Initial IP: {initial_info['public_ip']}")
+        
         if vpn_manager.setup_random_vpn():
-            current_ip = vpn_manager.get_current_ip()
-            print(f"[+] VPN connected! IP: {current_ip}")
+            print("[+] VPN setup completed!")
+            vpn_manager.print_vpn_status()
+            network_info = vpn_manager.get_network_info()
             vpn_connected = True
         else:
             print("[!] VPN connection failed, continuing without VPN...")
@@ -67,7 +73,9 @@ if __name__ == "__main__":
                             "tool": "dns-lookup",
                             "job_id": job_id,
                             "vpn_used": vpn_connected,
-                            "scan_ip": vpn_manager.get_current_ip() if vpn_connected else "No VPN"
+                            "scan_ip": network_info.get("public_ip", "Unknown"),
+                            "vpn_local_ip": network_info.get("local_ip"),
+                            "tun_interface": network_info.get("tun_interface", False)
                         }
                     }
                     print(f"Sending result to Controller: {payload}")
