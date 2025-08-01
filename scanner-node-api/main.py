@@ -64,13 +64,34 @@ def _create_job(req: ScanRequest):
         image=f"{REGISTRY}/{req.tool}:latest",
         args=req.targets,
         env=env_vars,
-        image_pull_policy="Never"
+        image_pull_policy="Never",
+        security_context=client.V1SecurityContext(
+            privileged=True,
+            capabilities=client.V1Capabilities(
+                add=["NET_ADMIN"]
+            )
+        ),
+        volume_mounts=[
+            client.V1VolumeMount(
+                name="dev-tun",
+                mount_path="/dev/net/tun"
+            )
+        ]
     )
     template = client.V1PodTemplateSpec(
         metadata=client.V1ObjectMeta(labels={"job-name": job_name}),
         spec=client.V1PodSpec(
             containers=[container],
-            restart_policy="Never"
+            restart_policy="Never",
+            volumes=[
+                client.V1Volume(
+                    name="dev-tun",
+                    host_path=client.V1HostPathVolumeSource(
+                        path="/dev/net/tun",
+                        type="CharDevice"
+                    )
+                )
+            ]
         )
     )
     job_spec = client.V1JobSpec(
