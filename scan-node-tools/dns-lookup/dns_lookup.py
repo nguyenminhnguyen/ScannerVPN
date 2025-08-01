@@ -12,18 +12,42 @@ def scan(target):
     Nếu input đã là IP thì vẫn trả về chính nó.
     """
     try:
-        # Thử resolve domain name
+        # Thử resolve domain name với Python socket
         ips = socket.gethostbyname_ex(target)[2]
+        print(f"[+] Resolved {target} to: {ips}")
         return {'resolved_ips': ips}
-    except socket.gaierror:
-        # Nếu không resolve được, check xem có phải là IP không
+    except socket.gaierror as e:
+        print(f"[!] Socket resolution failed for {target}: {e}")
+        
+        # Fallback: thử dùng nslookup command
         try:
-            # Validate nếu target đã là IP
+            import subprocess
+            result = subprocess.run(['nslookup', target], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                # Parse nslookup output
+                lines = result.stdout.split('\n')
+                ips = []
+                for line in lines:
+                    if 'Address:' in line and not 'server' in line.lower():
+                        ip = line.split('Address:')[1].strip()
+                        if ip and not ip.startswith('#'):
+                            ips.append(ip)
+                
+                if ips:
+                    print(f"[+] nslookup resolved {target} to: {ips}")
+                    return {'resolved_ips': ips}
+        except Exception as lookup_error:
+            print(f"[!] nslookup failed: {lookup_error}")
+        
+        # Check if target is already an IP
+        try:
             socket.inet_aton(target)
+            print(f"[+] {target} is already an IP address")
             return {'resolved_ips': [target]}
         except socket.error:
             # Không phải IP và không resolve được
-            print(f"[!] Cannot resolve {target}")
+            print(f"[!] Cannot resolve {target} - returning original")
             return {'resolved_ips': [target]}  # Return original target
 
 if __name__ == "__main__":
