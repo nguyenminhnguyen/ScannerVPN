@@ -63,7 +63,8 @@ def _create_job(req: ScanRequest):
         name=req.tool,
         image=f"{REGISTRY}/{req.tool}:latest",
         args=req.targets,
-        env=env_vars
+        env=env_vars,
+        image_pull_policy="Never"
     )
     template = client.V1PodTemplateSpec(
         metadata=client.V1ObjectMeta(labels={"job-name": job_name}),
