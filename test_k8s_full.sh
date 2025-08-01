@@ -24,12 +24,32 @@ kubectl port-forward -n scan-system svc/scanner-node-api 8002:8000 &
 SCANNER_PF=$!
 
 # Wait for port forwarding to be ready
-sleep 5
+sleep 10
+
+# Check if port forwarding is working
+echo "Checking port forwarding..."
+netstat -an | grep 8001 || echo "Port 8001 not listening"
+netstat -an | grep 8002 || echo "Port 8002 not listening"
 
 # 5. Test services
 echo "5. Testing services..."
-echo "Testing Controller..."
-curl -s http://localhost:8001/api/tools | jq . || echo "Controller not ready"
+echo "Checking pod status first..."
+kubectl get pods -n scan-system
+
+echo "Checking latest Controller logs..."
+kubectl logs -l app=controller -n scan-system --tail=10
+
+echo "Testing Controller root..."
+curl -s http://localhost:8001/ || echo "Controller root failed"
+echo ""
+
+echo "Testing Controller health..."
+curl -s http://localhost:8001/health || echo "Controller health failed"
+echo ""
+
+echo "Testing Controller tools..."
+curl -s http://localhost:8001/api/tools || echo "Controller tools failed"
+echo ""
 
 echo "Testing Scanner Node API..."
 curl -s http://localhost:8002/health | jq . || echo "Scanner Node API not ready"

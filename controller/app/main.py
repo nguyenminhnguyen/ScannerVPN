@@ -22,6 +22,20 @@ app = FastAPI(
     version="1.0"
 )
 
+@app.get("/")
+def root():
+    """
+    Root endpoint để test.
+    """
+    return {"message": "Scanner Controller API", "status": "running"}
+
+@app.get("/health")
+def health():
+    """
+    Health check endpoint.
+    """
+    return {"status": "ok", "tools_loaded": len(TOOLS)}
+
 def get_db():
     db = database.SessionLocal()
     try:
@@ -31,16 +45,24 @@ def get_db():
 
 # Load metadata của các tool từ tools.yaml ở thư mục làm việc
 TOOLS_FILE = os.path.join(os.getcwd(), "tools.yaml")
+logger.info(f"Looking for tools.yaml at: {TOOLS_FILE}")
+
 if not os.path.exists(TOOLS_FILE):
+    logger.error(f"tools.yaml not found at {TOOLS_FILE}")
+    # List current directory contents
+    logger.info(f"Current directory contents: {os.listdir(os.getcwd())}")
     raise RuntimeError(f"tools.yaml not found at {TOOLS_FILE}")
+
 with open(TOOLS_FILE, 'r') as f:
     TOOLS = yaml.safe_load(f).get("tools", [])
+    logger.info(f"Loaded {len(TOOLS)} tools: {[t.get('name') for t in TOOLS]}")
 
 @app.get("/api/tools")
 def list_tools():
     """
     Trả về danh sách các tool, bao gồm name, image, description, args.
     """
+    logger.info(f"API call to /api/tools, returning {len(TOOLS)} tools")
     return {"tools": TOOLS}
 
 @app.post("/api/scan_results", status_code=status.HTTP_204_NO_CONTENT)

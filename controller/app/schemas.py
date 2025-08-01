@@ -13,7 +13,7 @@ class ScanResult(ScanResultCreate):
     timestamp: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ScanJobRequest(BaseModel):
     tool: str                        # Tên tool, trùng với "name" trong tools.yaml
@@ -34,4 +34,4 @@ class ScanJob(BaseModel):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
