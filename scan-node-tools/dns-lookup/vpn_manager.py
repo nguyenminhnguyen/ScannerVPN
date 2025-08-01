@@ -84,25 +84,59 @@ class VPNManager:
             return False
     
     def _setup_vpn_routing(self):
-        """Setup routing để force traffic qua VPN"""
+        """Setup routing để force external traffic qua VPN nhưng giữ Kubernetes internal"""
         try:
             print("[*] Thiết lập VPN routing...")
             
-            # Lấy VPN gateway
+            # Lấy thông tin về Kubernetes cluster network
+            k8s_network = "10.244.0.0/16"  # Typical Kubernetes pod network
+            k8s_service_network = "10.96.0.0/12"  # Typical Kubernetes service network
+            
+            # Lấy VPN gateway IP
             result = subprocess.run(['ip', 'route', 'show', 'dev', 'tun0'], 
                                   capture_output=True, text=True)
+            
             if result.returncode == 0 and result.stdout.strip():
-                # Thêm route cho DNS servers
-                subprocess.run(['ip', 'route', 'add', '8.8.8.8', 'dev', 'tun0'], 
-                             capture_output=True)
-                subprocess.run(['ip', 'route', 'add', '8.8.4.4', 'dev', 'tun0'], 
-                             capture_output=True)
+                # Backup original default route
+                orig_route = subprocess.run(['ip', 'route', 'show', 'default'], 
+                                          capture_output=True, text=True)
+                print(f"[*] Original default route: {orig_route.stdout.strip()}")
                 
-                # Set tun0 có metric thấp hơn để ưu tiên
-                subprocess.run(['ip', 'route', 'change', 'default', 'dev', 'tun0', 'metric', '50'], 
-                             capture_output=True)
+                # Get VPN gateway from tun0 routes
+                tun_routes = result.stdout.strip().split('\n')
+                vpn_gateway = None
+                for route in tun_routes:
+                    if 'via' in route:
+                        vpn_gateway = route.split('via')[1].split()[0]
+                        break
                 
-                print("[+] VPN routing setup completed")
+                if vpn_gateway:
+                    print(f"[*] VPN Gateway: {vpn_gateway}")
+                    
+                    # Add specific routes for external traffic through VPN
+                    external_targets = [
+                        "8.8.8.8",
+                        "8.8.4.4", 
+                        "1.1.1.1",
+                        "api.ipify.org",
+                        "ipinfo.io",
+                        "checkip.amazonaws.com"
+                    ]
+                    
+                    for target in external_targets:
+                        subprocess.run(['ip', 'route', 'add', target, 'via', vpn_gateway, 'dev', 'tun0'], 
+                                     capture_output=True)
+                        print(f"[*] Added route for {target} via VPN")
+                
+                # Add route for external traffic (0.0.0.0/1 and 128.0.0.0/1 trick)
+                # This covers all external IPs while keeping local routes intact
+                subprocess.run(['ip', 'route', 'add', '0.0.0.0/1', 'dev', 'tun0'], capture_output=True)
+                subprocess.run(['ip', 'route', 'add', '128.0.0.0/1', 'dev', 'tun0'], capture_output=True)
+                
+                print("[+] VPN routing setup completed - external traffic via VPN, internal via eth0")
+            else:
+                print("[!] Không tìm thấy VPN gateway")
+                
         except Exception as e:
             print(f"[!] Lỗi setup VPN routing: {e}")
     
@@ -228,25 +262,25 @@ class VPNManager:
         return tun_ok and (connectivity_ok or dns_ok)
     
     def get_current_ip(self):
-        """Lấy IP hiện tại - ưu tiên external IP services"""
+        """Lấy IP hiện tại - ưu tiên external IP services, fallback to VPN interface"""
         # Trước tiên thử get IP từ VPN interface
         vpn_ip = self._get_vpn_interface_ip()
         if vpn_ip:
             print(f"[*] Detected VPN interface IP: {vpn_ip}")
         
-        # Thử các external services
+        # Thử các external services với timeout ngắn hơn
         external_methods = [
-            (['curl', '-s', '--max-time', '10', '--interface', 'tun0', 'https://api.ipify.org'], 'tun0'),
-            (['curl', '-s', '--max-time', '10', 'https://api.ipify.org'], 'default'),
-            (['curl', '-s', '--max-time', '10', 'http://ipinfo.io/ip'], 'default'),
-            (['curl', '-s', '--max-time', '10', 'http://checkip.amazonaws.com'], 'default'),
-            (['wget', '-qO-', '--timeout=10', 'https://api.ipify.org'], 'default')
+            (['curl', '-s', '--max-time', '5', '--interface', 'tun0', 'https://api.ipify.org'], 'tun0'),
+            (['curl', '-s', '--max-time', '5', 'https://api.ipify.org'], 'default'),
+            (['curl', '-s', '--max-time', '5', 'http://ipinfo.io/ip'], 'default'),
+            (['curl', '-s', '--max-time', '5', 'http://checkip.amazonaws.com'], 'default'),
+            (['wget', '-qO-', '--timeout=5', 'https://api.ipify.org'], 'default')
         ]
         
         for method, interface in external_methods:
             try:
                 print(f"[*] Trying IP detection via {interface}: {' '.join(method[:3])}")
-                result = subprocess.run(method, capture_output=True, text=True, timeout=15)
+                result = subprocess.run(method, capture_output=True, text=True, timeout=8)
                 if result.returncode == 0 and result.stdout.strip():
                     ip = result.stdout.strip()
                     if self._is_valid_ip(ip):
@@ -254,12 +288,16 @@ class VPNManager:
                         return ip
                 else:
                     print(f"[!] Method failed: {result.stderr.strip() if result.stderr else 'No output'}")
+            except subprocess.TimeoutExpired:
+                print(f"[!] Method timeout: {' '.join(method[:3])}")
+                continue
             except Exception as e:
                 print(f"[!] Method error: {e}")
                 continue
         
-        # Fallback to VPN interface IP if external detection fails
+        # If external detection fails, use VPN interface IP (this is actually the correct behavior)
         if vpn_ip:
+            print(f"[*] External detection failed, using VPN interface IP: {vpn_ip}")
             return vpn_ip
                 
         # Last fallback: check local interface IPs

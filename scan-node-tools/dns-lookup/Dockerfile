@@ -7,11 +7,13 @@ RUN apt update && apt install -y \
     python3 \
     python3-pip \
     curl \
+    wget \
     openvpn \
     iproute2 \
     iputils-ping \
     net-tools \
     dnsutils \
+    resolvconf \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

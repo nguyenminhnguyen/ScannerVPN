@@ -12,10 +12,19 @@ def scan(target):
     Nếu input đã là IP thì vẫn trả về chính nó.
     """
     try:
+        # Thử resolve domain name
         ips = socket.gethostbyname_ex(target)[2]
+        return {'resolved_ips': ips}
     except socket.gaierror:
-        ips = [target]
-    return {'resolved_ips': ips}
+        # Nếu không resolve được, check xem có phải là IP không
+        try:
+            # Validate nếu target đã là IP
+            socket.inet_aton(target)
+            return {'resolved_ips': [target]}
+        except socket.error:
+            # Không phải IP và không resolve được
+            print(f"[!] Cannot resolve {target}")
+            return {'resolved_ips': [target]}  # Return original target
 
 if __name__ == "__main__":
     print("[*] Starting DNS Lookup scan with VPN...")
