@@ -45,8 +45,6 @@ class VPNManager:
                 "--pull-filter", "ignore", "redirect-gateway",  # Ignore server redirect-gateway
                 "--pull-filter", "accept", "route",  # Accept routes from server
                 "--script-security", "2",
-                "--up", "/etc/openvpn/update-resolv-conf",
-                "--down", "/etc/openvpn/update-resolv-conf",
                 "--verb", "3"
             ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
