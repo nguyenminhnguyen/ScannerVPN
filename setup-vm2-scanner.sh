@@ -21,7 +21,7 @@ docker build -t nguyenminhnguyen/scanner-node-api:latest scanner-node-api/
 # Deploy Kubernetes manifests
 echo "Deploying Kubernetes manifests..."
 kubectl apply -f manifests/namespace.yaml
-kubectl apply -f manifests/controller-rbac.yaml
+kubectl apply -f manifests/scanner-node-rbac.yaml  # Scanner Node RBAC only
 kubectl apply -f manifests/scanner-node-api-deployment.yaml
 kubectl apply -f manifests/scanner-node-api-service.yaml
 
