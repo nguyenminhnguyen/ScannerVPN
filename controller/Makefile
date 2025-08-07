@@ -21,7 +21,7 @@ help:
 
 build:
 	@echo "🔨 Building Controller image..."
-	@eval $$(minikube docker-env); docker build -f Dockerfile -t $(REGISTRY)/controller:$(TAG) .
+	@eval $$(minikube docker-env); docker build --no-cache -f Dockerfile -t $(REGISTRY)/controller:$(TAG) .
 	@echo "✅ Controller image built: $(REGISTRY)/controller:$(TAG)"
 
 push: build
