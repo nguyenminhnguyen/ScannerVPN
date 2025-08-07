@@ -253,6 +253,23 @@ async def debug_vpn_service():
 
 # ============ VPN API Endpoints ============
 
+@app.get("/api/vpns/test")
+def test_vpn_sync():
+    """Test VPN service với sync method"""
+    try:
+        vpns = vpn_service.fetch_vpns_sync()
+        return {
+            "status": "success",
+            "proxy_node": vpn_service.proxy_node,
+            "total": len(vpns),
+            "sample": vpns[:3] if vpns else []
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
 @app.get("/api/vpns")
 async def get_available_vpns():
     """
