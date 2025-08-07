@@ -1,7 +1,7 @@
 # Makefile for Controller only
 # For VM1 (Ubuntu - 10.102.199.42)
 
-.PHONY: help build push deploy logs clean test
+.PHONY: help build push deploy logs clean test health rebuild port-forward-external port-forward-external-bg test-external status clean-jobs logs-detailed debug test-vpn-assignment
 
 REGISTRY := nguyenminhnguyen
 TAG      := latest
@@ -11,13 +11,21 @@ help:
 	@echo "Controller Build & Deploy"
 	@echo "========================"
 	@echo "Available commands:"
-	@echo "  make build       Build controller image"
-	@echo "  make push        Push controller to Docker Hub"
-	@echo "  make deploy      Deploy controller to K8s"
-	@echo "  make logs        View controller logs"
-	@echo "  make clean       Clean controller resources"
-	@echo "  make test        Test controller APIs"
-	@echo "  make health      Health check controller"
+	@echo "  make build               Build controller image"
+	@echo "  make push                Push controller to Docker Hub"
+	@echo "  make deploy              Deploy controller to K8s"
+	@echo "  make logs                View controller logs"
+	@echo "  make logs-detailed       View detailed controller logs"
+	@echo "  make clean               Clean controller resources"
+	@echo "  make clean-jobs          Clean old scan jobs"
+	@echo "  make test                Test controller APIs"
+	@echo "  make test-vpn-assignment Test VPN assignment feature"
+	@echo "  make health              Health check controller"
+	@echo "  make status              Show comprehensive system status"
+	@echo "  make debug               Show detailed debug information"
+	@echo "  make rebuild             Clean, build and redeploy"
+	@echo "  make port-forward-external   External port forwarding"
+	@echo "  make test-external       Test APIs via external access"
 
 build:
 	@echo "🔨 Building Controller image..."
@@ -49,6 +57,9 @@ clean:
 	kubectl delete deployment controller -n $(NAMESPACE) --ignore-not-found
 	kubectl delete service controller -n $(NAMESPACE) --ignore-not-found
 	kubectl delete service controller-nodeport -n $(NAMESPACE) --ignore-not-found
+	kubectl delete rolebinding controller-rolebinding -n $(NAMESPACE) --ignore-not-found
+	kubectl delete role controller-role -n $(NAMESPACE) --ignore-not-found
+	kubectl delete serviceaccount controller-sa -n $(NAMESPACE) --ignore-not-found
 
 test:
 	@echo "🧪 Testing Controller APIs..."
@@ -58,6 +69,8 @@ test:
 	curl -f http://10.102.199.42:8000/api/vpns || echo "VPN API failed"
 	@echo "\nAPI docs:"
 	curl -f http://10.102.199.42:8000/docs >/dev/null && echo "API docs OK" || echo "API docs failed"
+	@echo "\nController Pod status:"
+	kubectl get pods -n $(NAMESPACE) -l app=controller
 
 health:
 	@echo "🔍 Controller health check..."
@@ -69,16 +82,6 @@ health:
 
 rebuild: clean build deploy
 	@echo "✅ Controller rebuilt and redeployed"
-
-port-forward:
-	@echo "🌐 Setting up port forwarding for Controller..."
-	@echo "Controller API will be available at http://localhost:8000"
-	kubectl port-forward -n $(NAMESPACE) service/controller 8000:8000
-
-port-forward-bg:
-	@echo "🌐 Setting up background port forwarding for Controller..."
-	@echo "Controller API will be available at http://localhost:8000"
-	kubectl port-forward -n $(NAMESPACE) service/controller 8000:8000 &
 
 port-forward-external:
 	@echo "🌐 Setting up external port forwarding for Controller..."
@@ -98,3 +101,55 @@ test-external:
 	curl -f http://10.102.199.42:8000/debug/info || echo "Debug info failed"
 	@echo "\nVPN API test (sync):"
 	curl -f http://10.102.199.42:8000/api/vpns/test || echo "VPN API failed"
+	@echo "\nTest scan job submission:"
+	curl -X POST http://10.102.199.42:8000/api/scan/dns-lookup \
+		-H "Content-Type: application/json" \
+		-d '{"targets":["google.com"],"vpn_profile":"103.57.130.113.ovpn"}' \
+		|| echo "Scan job submission failed"
+
+logs-detailed:
+	@echo "📋 Detailed Controller logs (last 100 lines):"
+	kubectl logs -n $(NAMESPACE) deployment/controller --tail=100
+
+status:
+	@echo "📊 Controller System Status:"
+	@echo "Pods:"
+	kubectl get pods -n $(NAMESPACE) -l app=controller
+	@echo "\nServices:"
+	kubectl get svc -n $(NAMESPACE) controller controller-nodeport
+	@echo "\nEndpoints:"
+	kubectl get endpoints -n $(NAMESPACE) controller
+	@echo "\nController Resources:"
+	kubectl top pods -n $(NAMESPACE) --no-headers | grep controller || echo "Metrics not available"
+	@echo "\nRecent Controller Events:"
+	kubectl get events -n $(NAMESPACE) --sort-by=.metadata.creationTimestamp | grep controller | tail -5
+
+clean-jobs:
+	@echo "🧹 Cleaning old scan jobs from all namespaces..."
+	kubectl delete jobs --field-selector status.successful=1 -n $(NAMESPACE) --ignore-not-found
+	kubectl delete jobs --field-selector status.failed=1 -n $(NAMESPACE) --ignore-not-found
+	@echo "✅ Old scan jobs cleaned"
+
+debug:
+	@echo "🔍 Controller Debug Information:"
+	@echo "=== Pod Details ==="
+	kubectl describe pods -n $(NAMESPACE) -l app=controller
+	@echo "\n=== Service Details ==="
+	kubectl describe svc -n $(NAMESPACE) controller
+	@echo "\n=== Recent Events ==="
+	kubectl get events -n $(NAMESPACE) --sort-by=.metadata.creationTimestamp | tail -10
+	@echo "\n=== Controller Logs (last 50 lines) ==="
+	kubectl logs -n $(NAMESPACE) deployment/controller --tail=50
+
+test-vpn-assignment:
+	@echo "🧪 Testing VPN Assignment Feature..."
+	@echo "Testing DNS lookup with specific VPN:"
+	curl -X POST http://10.102.199.42:8000/api/scan/dns-lookup \
+		-H "Content-Type: application/json" \
+		-d '{"targets":["google.com","github.com"],"vpn_profile":"103.57.130.113.ovpn"}' \
+		|| echo "VPN assignment test failed"
+	@echo "\nTesting without VPN (should use random):"
+	curl -X POST http://10.102.199.42:8000/api/scan/dns-lookup \
+		-H "Content-Type: application/json" \
+		-d '{"targets":["cloudflare.com"]}' \
+		|| echo "Random VPN test failed"
