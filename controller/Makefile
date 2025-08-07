@@ -1,7 +1,7 @@
 # Makefile for Controller only
 # For VM1 (Ubuntu - 10.102.199.42)
 
-.PHONY: help build push deploy logs clean test health rebuild port-forward-external port-forward-external-bg test-external status clean-jobs logs-detailed debug test-vpn-assignment test-connectivity
+.PHONY: help build push deploy logs clean test health rebuild port-forward-external port-forward-external-bg test-external status clean-jobs logs-detailed debug test-vpn-assignment test-connectivity logs-recent-job
 
 REGISTRY := nguyenminhnguyen
 TAG      := latest
@@ -26,7 +26,7 @@ help:
 	@echo "  make debug               Show detailed debug information"
 	@echo "  make rebuild             Clean, build and redeploy"
 	@echo "  make port-forward-external   External port forwarding"
-	@echo "  make test-external       Test APIs via external access"
+	@echo "  make logs-recent-job     View most recent scan job logs"
 
 build:
 	@echo "🔨 Building Controller image..."
@@ -146,15 +146,20 @@ test-vpn-assignment:
 	@echo "🧪 Testing VPN Assignment Feature..."
 	@echo "First, testing Scanner Node connectivity:"
 	curl -f http://10.102.199.37:8000/health || echo "Scanner Node not accessible - check port-forward"
-	@echo "\nTesting DNS lookup with specific VPN:"
+	@echo "\nTesting DNS lookup with specific VPN and country:"
 	curl -X POST http://10.102.199.42:8000/api/scan/dns-lookup \
 		-H "Content-Type: application/json" \
-		-d '{"targets":["google.com","github.com"],"vpn_profile":"103.57.130.113.ovpn"}' \
+		-d '{"targets":["google.com","github.com"],"vpn_profile":"103.57.130.113.ovpn","country":"JP"}' \
 		|| echo "VPN assignment test failed"
+	@echo "\nTesting with VN VPN:"
+	curl -X POST http://10.102.199.42:8000/api/scan/dns-lookup \
+		-H "Content-Type: application/json" \
+		-d '{"targets":["cloudflare.com"],"country":"VN"}' \
+		|| echo "VN VPN test failed"
 	@echo "\nTesting without VPN (should use random):"
 	curl -X POST http://10.102.199.42:8000/api/scan/dns-lookup \
 		-H "Content-Type: application/json" \
-		-d '{"targets":["cloudflare.com"]}' \
+		-d '{"targets":["example.com"]}' \
 		|| echo "Random VPN test failed"
 
 test-connectivity:
@@ -165,3 +170,14 @@ test-connectivity:
 	curl -f http://10.102.199.37:8000/health || echo "Scanner Node not accessible - run port-forward first"
 	@echo "\nVPN Proxy health:"
 	curl -f http://10.102.199.36:8000/health || echo "VPN Proxy not accessible"
+
+logs-recent-job:
+	@echo "📋 Recent scan job logs:"
+	@latest_job=$$(kubectl get jobs -n $(NAMESPACE) --sort-by=.metadata.creationTimestamp -o name | tail -1); \
+	if [ -n "$$latest_job" ]; then \
+		echo "=== $$latest_job ==="; \
+		kubectl logs -n $(NAMESPACE) $$latest_job --tail=50; \
+	else \
+		echo "No jobs found"; \
+	fi
+	

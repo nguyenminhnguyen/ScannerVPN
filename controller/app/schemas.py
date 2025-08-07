@@ -20,6 +20,7 @@ class ScanJobRequest(BaseModel):
     targets: List[str]
     options: Dict[str, Any] = {}     # Tham số tuỳ biến cho tool, key trùng với tên flag
     vpn_profile: Optional[str] = None
+    country: Optional[str] = None    # Country code: "VN", "JP", "KR", etc.
 
 class ScanJob(BaseModel):
     id: int

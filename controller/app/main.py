@@ -148,7 +148,7 @@ def create_scan(
     # 3. Gửi request tới Scanner Node API
     try:
         scanner_node_url = os.getenv("SCANNER_NODE_URL", "http://scanner-node-api:8000")
-        scanner_response = call_scanner_node(req.tool, req.targets, req.options, job_id, scanner_node_url, req.vpn_profile)
+        scanner_response = call_scanner_node(req.tool, req.targets, req.options, job_id, scanner_node_url, req.vpn_profile, req.country)
         
         # 4. Cập nhật job status
         db_job.scanner_job_name = scanner_response.get("job_name")
@@ -165,7 +165,7 @@ def create_scan(
         db.commit()
         raise HTTPException(status_code=500, detail=f"Failed to submit scan to scanner node: {e}")
 
-def call_scanner_node(tool: str, targets: List[str], options: Dict[str, Any], job_id: str, scanner_url: str, vpn_profile: str = None):
+def call_scanner_node(tool: str, targets: List[str], options: Dict[str, Any], job_id: str, scanner_url: str, vpn_profile: str = None, country: str = None):
     """
     Gọi Scanner Node API để thực hiện scan với VPN assignment.
     """
@@ -175,11 +175,49 @@ def call_scanner_node(tool: str, targets: List[str], options: Dict[str, Any], jo
         if vpn_profile:
             # Sử dụng VPN được chỉ định từ dashboard
             logger.info(f"Using specified VPN profile: {vpn_profile} for job {job_id}")
-            # Tạo VPN assignment object từ filename được chỉ định
-            vpn_assignment = {
-                "filename": vpn_profile,
-                "hostname": vpn_profile.replace('.ovpn', '')
-            }
+            
+            # Tìm VPN thực từ VPN service để lấy metadata đầy đủ
+            try:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                all_vpns = loop.run_until_complete(vpn_service.fetch_vpns())
+                
+                # Tìm VPN profile được chỉ định
+                selected_vpn = next((vpn for vpn in all_vpns if vpn.get('filename') == vpn_profile), None)
+                
+                if selected_vpn:
+                    # Sử dụng metadata đầy đủ từ VPN service
+                    vpn_assignment = selected_vpn.copy()
+                    logger.info(f"Found VPN metadata: {selected_vpn.get('country', 'Unknown')} - {selected_vpn.get('hostname', 'Unknown')}")
+                else:
+                    # Fallback nếu không tìm thấy VPN trong danh sách
+                    # Sử dụng country từ dashboard nếu có, nếu không thì "Unknown"
+                    fallback_country = country if country else "Unknown"
+                    
+                    vpn_assignment = {
+                        "filename": vpn_profile,
+                        "hostname": vpn_profile.replace('.ovpn', ''),
+                        "country": fallback_country,
+                        "provider": "Manual"
+                    }
+                    logger.warning(f"VPN profile {vpn_profile} not found in VPN service, using fallback with country: {fallback_country}")
+                
+                loop.close()
+            except Exception as e:
+                # Fallback nếu không thể kết nối VPN service  
+                # Sử dụng country từ dashboard nếu có, nếu không thì "Unknown"
+                fallback_country = country if country else "Unknown"
+                
+                vpn_assignment = {
+                    "filename": vpn_profile,
+                    "hostname": vpn_profile.replace('.ovpn', ''),
+                    "country": fallback_country,
+                    "provider": "Manual"
+                }
+                logger.warning(f"Failed to fetch VPN metadata for {vpn_profile}: {e}, using fallback with country: {fallback_country}")
+            
+            logger.info(f"Created VPN assignment: {vpn_assignment}")
         else:
             # Fallback: Random VPN assignment nếu không có VPN chỉ định
             import asyncio
@@ -216,21 +254,22 @@ class ToolRequest(BaseModel):
     targets: List[str]
     options: Dict[str, Any] = {}
     vpn_profile: Optional[str] = None  # Cho phép chỉ định VPN profile từ dashboard
+    country: Optional[str] = None      # Country code: "VN", "JP", "KR", etc.
 
 # Endpoint cho từng tool
 @app.post("/api/scan/dns-lookup", status_code=201)
 def dns_lookup_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
-    scan_req = schemas.ScanJobRequest(tool="dns-lookup", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile)
+    scan_req = schemas.ScanJobRequest(tool="dns-lookup", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile, country=req.country)
     return create_scan(scan_req, db)
 
 @app.post("/api/scan/port-scan", status_code=201)
 def port_scan_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
-    scan_req = schemas.ScanJobRequest(tool="port-scan", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile)
+    scan_req = schemas.ScanJobRequest(tool="port-scan", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile, country=req.country)
     return create_scan(scan_req, db)
 
 @app.post("/api/scan/httpx-scan", status_code=201)
 def httpx_scan_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
-    scan_req = schemas.ScanJobRequest(tool="httpx-scan", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile)
+    scan_req = schemas.ScanJobRequest(tool="httpx-scan", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile, country=req.country)
     return create_scan(scan_req, db)
 
 @app.get("/debug/vpn-service")
