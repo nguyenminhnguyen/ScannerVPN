@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import httpx
 import logging
 import yaml
@@ -148,7 +148,7 @@ def create_scan(
     # 3. Gửi request tới Scanner Node API
     try:
         scanner_node_url = os.getenv("SCANNER_NODE_URL", "http://scanner-node-api:8000")
-        scanner_response = call_scanner_node(req.tool, req.targets, req.options, job_id, scanner_node_url)
+        scanner_response = call_scanner_node(req.tool, req.targets, req.options, job_id, scanner_node_url, req.vpn_profile)
         
         # 4. Cập nhật job status
         db_job.scanner_job_name = scanner_response.get("job_name")
@@ -165,23 +165,32 @@ def create_scan(
         db.commit()
         raise HTTPException(status_code=500, detail=f"Failed to submit scan to scanner node: {e}")
 
-def call_scanner_node(tool: str, targets: List[str], options: Dict[str, Any], job_id: str, scanner_url: str):
+def call_scanner_node(tool: str, targets: List[str], options: Dict[str, Any], job_id: str, scanner_url: str, vpn_profile: str = None):
     """
     Gọi Scanner Node API để thực hiện scan với VPN assignment.
     """
     # Lấy VPN assignment cho job này
     vpn_assignment = None
     try:
-        import asyncio
-        # Get random VPN for this job
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        vpns = loop.run_until_complete(vpn_service.fetch_vpns())
-        if vpns:
-            import random
-            vpn_assignment = random.choice(vpns)
-            logger.info(f"Assigned VPN {vpn_assignment.get('hostname', 'Unknown')} to job {job_id}")
-        loop.close()
+        if vpn_profile:
+            # Sử dụng VPN được chỉ định từ dashboard
+            logger.info(f"Using specified VPN profile: {vpn_profile} for job {job_id}")
+            # Tạo VPN assignment object từ filename được chỉ định
+            vpn_assignment = {
+                "filename": vpn_profile,
+                "hostname": vpn_profile.replace('.ovpn', '')
+            }
+        else:
+            # Fallback: Random VPN assignment nếu không có VPN chỉ định
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            vpns = loop.run_until_complete(vpn_service.fetch_vpns())
+            if vpns:
+                import random
+                vpn_assignment = random.choice(vpns)
+                logger.info(f"Auto-assigned random VPN {vpn_assignment.get('hostname', 'Unknown')} to job {job_id}")
+            loop.close()
     except Exception as e:
         logger.warning(f"Failed to assign VPN for job {job_id}: {e}")
     
@@ -206,21 +215,22 @@ def call_scanner_node(tool: str, targets: List[str], options: Dict[str, Any], jo
 class ToolRequest(BaseModel):
     targets: List[str]
     options: Dict[str, Any] = {}
+    vpn_profile: Optional[str] = None  # Cho phép chỉ định VPN profile từ dashboard
 
 # Endpoint cho từng tool
 @app.post("/api/scan/dns-lookup", status_code=201)
 def dns_lookup_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
-    scan_req = schemas.ScanJobRequest(tool="dns-lookup", targets=req.targets, options=req.options)
+    scan_req = schemas.ScanJobRequest(tool="dns-lookup", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile)
     return create_scan(scan_req, db)
 
 @app.post("/api/scan/port-scan", status_code=201)
 def port_scan_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
-    scan_req = schemas.ScanJobRequest(tool="port-scan", targets=req.targets, options=req.options)
+    scan_req = schemas.ScanJobRequest(tool="port-scan", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile)
     return create_scan(scan_req, db)
 
 @app.post("/api/scan/httpx-scan", status_code=201)
 def httpx_scan_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
-    scan_req = schemas.ScanJobRequest(tool="httpx-scan", targets=req.targets, options=req.options)
+    scan_req = schemas.ScanJobRequest(tool="httpx-scan", targets=req.targets, options=req.options, vpn_profile=req.vpn_profile)
     return create_scan(scan_req, db)
 
 @app.get("/debug/vpn-service")

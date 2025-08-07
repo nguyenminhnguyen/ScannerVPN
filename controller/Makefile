@@ -69,3 +69,32 @@ health:
 
 rebuild: clean build deploy
 	@echo "✅ Controller rebuilt and redeployed"
+
+port-forward:
+	@echo "🌐 Setting up port forwarding for Controller..."
+	@echo "Controller API will be available at http://localhost:8000"
+	kubectl port-forward -n $(NAMESPACE) service/controller 8000:8000
+
+port-forward-bg:
+	@echo "🌐 Setting up background port forwarding for Controller..."
+	@echo "Controller API will be available at http://localhost:8000"
+	kubectl port-forward -n $(NAMESPACE) service/controller 8000:8000 &
+
+port-forward-external:
+	@echo "🌐 Setting up external port forwarding for Controller..."
+	@echo "Controller API will be available at http://10.102.199.42:8000"
+	kubectl port-forward --address 0.0.0.0 -n $(NAMESPACE) service/controller 8000:8000
+
+port-forward-external-bg:
+	@echo "🌐 Setting up external background port forwarding for Controller..."
+	@echo "Controller API will be available at http://10.102.199.42:8000"
+	kubectl port-forward --address 0.0.0.0 -n $(NAMESPACE) service/controller 8000:8000 &
+
+test-external:
+	@echo "🧪 Testing Controller APIs via external port-forward..."
+	@echo "Health check:"
+	curl -f http://10.102.199.42:8000/health || echo "Health check failed"
+	@echo "\nDebug info:"
+	curl -f http://10.102.199.42:8000/debug/info || echo "Debug info failed"
+	@echo "\nVPN API test (sync):"
+	curl -f http://10.102.199.42:8000/api/vpns/test || echo "VPN API failed"
