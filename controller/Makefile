@@ -1,7 +1,7 @@
 # Makefile for Controller only
 # For VM1 (Ubuntu - 10.102.199.42)
 
-.PHONY: help build push deploy logs clean test health rebuild port-forward-external port-forward-external-bg test-external status clean-jobs logs-detailed debug test-vpn-assignment
+.PHONY: help build push deploy logs clean test health rebuild port-forward-external port-forward-external-bg test-external status clean-jobs logs-detailed debug test-vpn-assignment test-connectivity
 
 REGISTRY := nguyenminhnguyen
 TAG      := latest
@@ -19,6 +19,7 @@ help:
 	@echo "  make clean               Clean controller resources"
 	@echo "  make clean-jobs          Clean old scan jobs"
 	@echo "  make test                Test controller APIs"
+	@echo "  make test-connectivity   Test cross-VM connectivity"
 	@echo "  make test-vpn-assignment Test VPN assignment feature"
 	@echo "  make health              Health check controller"
 	@echo "  make status              Show comprehensive system status"
@@ -143,7 +144,9 @@ debug:
 
 test-vpn-assignment:
 	@echo "🧪 Testing VPN Assignment Feature..."
-	@echo "Testing DNS lookup with specific VPN:"
+	@echo "First, testing Scanner Node connectivity:"
+	curl -f http://10.102.199.37:8000/health || echo "Scanner Node not accessible - check port-forward"
+	@echo "\nTesting DNS lookup with specific VPN:"
 	curl -X POST http://10.102.199.42:8000/api/scan/dns-lookup \
 		-H "Content-Type: application/json" \
 		-d '{"targets":["google.com","github.com"],"vpn_profile":"103.57.130.113.ovpn"}' \
@@ -153,3 +156,12 @@ test-vpn-assignment:
 		-H "Content-Type: application/json" \
 		-d '{"targets":["cloudflare.com"]}' \
 		|| echo "Random VPN test failed"
+
+test-connectivity:
+	@echo "🔗 Testing cross-VM connectivity..."
+	@echo "Controller health:"
+	curl -f http://10.102.199.42:8000/health || echo "Controller not accessible"
+	@echo "\nScanner Node health:"
+	curl -f http://10.102.199.37:8000/health || echo "Scanner Node not accessible - run port-forward first"
+	@echo "\nVPN Proxy health:"
+	curl -f http://10.102.199.36:8000/health || echo "VPN Proxy not accessible"

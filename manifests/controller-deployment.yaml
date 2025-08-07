@@ -22,7 +22,7 @@ spec:
         - name: DATABASE_URL
           value: sqlite:////data/scan_results.db
         - name: SCANNER_NODE_URL
-          value: http://scanner-node-api.scan-system.svc.cluster.local:8000
+          value: http://10.102.199.37:8000  # Scanner Node VM external IP
         - name: CONTROLLER_CALLBACK_URL
           value: http://10.102.199.42:8000  # Ubuntu VM external IP
         - name: EXTERNAL_CONTROLLER_IP
