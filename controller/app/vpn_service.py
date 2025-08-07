@@ -92,24 +92,35 @@ class VPNService:
         except:
             return 'Unknown'
     
-    def categorize_vpns_by_country(self, vpns: List[str]) -> Dict[str, List[str]]:
+    async def categorize_vpns_by_country(self, vpns: List[Dict]) -> Dict[str, List[Dict]]:
         """Phân loại VPN theo quốc gia dựa trên IP trong tên file"""
         categorized = defaultdict(list)
         
         for vpn in vpns:
+            if isinstance(vpn, dict):
+                # VPN object format
+                filename = vpn.get('filename', '')
+                hostname = vpn.get('hostname', '')
+            else:
+                # String format
+                filename = str(vpn)
+                hostname = filename.replace('.ovpn', '')
+            
             # Trích xuất IP từ tên file VPN
-            ip_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', vpn)
+            ip_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', filename)
             if ip_match:
                 ip = ip_match.group(1)
                 country = self.get_country_from_ip(ip)
                 categorized[country].append({
-                    'filename': vpn,
+                    'filename': filename,
+                    'hostname': hostname,
                     'ip': ip,
                     'country': country
                 })
             else:
                 categorized['Unknown'].append({
-                    'filename': vpn,
+                    'filename': filename,
+                    'hostname': hostname,
                     'ip': 'Unknown',
                     'country': 'Unknown'
                 })
