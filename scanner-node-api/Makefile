@@ -27,9 +27,9 @@ build-scanner:
 
 build-tools:
 	@echo "🔨 Building scan tools..."
-	docker build -t $(REGISTRY)/dns-lookup:$(TAG) ./scan-node-tools/dns-lookup
-	docker build -t $(REGISTRY)/port-scan:$(TAG) ./scan-node-tools/port-scan
-	docker build -t $(REGISTRY)/httpx-scan:$(TAG) ./scan-node-tools/httpx-scan
+	docker build -t $(REGISTRY)/dns-lookup:$(TAG) ../scan-node-tools/dns-lookup
+	docker build -t $(REGISTRY)/port-scan:$(TAG) ../scan-node-tools/port-scan
+	docker build -t $(REGISTRY)/httpx-scan:$(TAG) ../scan-node-tools/httpx-scan
 	@echo "✅ All scan tools built"
 
 build-all: build-scanner build-tools
@@ -45,10 +45,10 @@ push: build-all
 
 deploy:
 	@echo "🚀 Deploying Scanner Node to Kubernetes..."
-	kubectl apply -f manifests/namespace.yaml
-	kubectl apply -f manifests/scanner-node-rbac.yaml
-	kubectl apply -f manifests/scanner-node-api-deployment.yaml
-	kubectl apply -f manifests/scanner-node-api-service.yaml
+	kubectl apply -f ../manifests/namespace.yaml
+	kubectl apply -f ../manifests/scanner-node-rbac.yaml
+	kubectl apply -f ../manifests/scanner-node-api-deployment.yaml
+	kubectl apply -f ../manifests/scanner-node-api-service.yaml
 	@echo "⏳ Waiting for Scanner Node to be ready..."
 	kubectl wait --for=condition=available --timeout=300s deployment/scanner-node-api -n $(NAMESPACE)
 	@echo "✅ Scanner Node deployed successfully"
