@@ -222,6 +222,35 @@ def httpx_scan_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
     scan_req = schemas.ScanJobRequest(tool="httpx-scan", targets=req.targets, options=req.options)
     return create_scan(scan_req, db)
 
+@app.get("/debug/vpn-service")
+async def debug_vpn_service():
+    """Debug VPN service status"""
+    try:
+        proxy_status = "checking..."
+        vpn_count = 0
+        error_msg = None
+        
+        try:
+            vpns = await vpn_service.fetch_vpns()
+            vpn_count = len(vpns)
+            proxy_status = "connected"
+        except Exception as e:
+            error_msg = str(e)
+            proxy_status = "failed"
+        
+        return {
+            "vpn_service_status": "initialized",
+            "proxy_node": vpn_service.proxy_node,
+            "proxy_status": proxy_status,
+            "vpn_count": vpn_count,
+            "error": error_msg
+        }
+    except Exception as e:
+        return {
+            "vpn_service_status": "error",
+            "error": str(e)
+        }
+
 # ============ VPN API Endpoints ============
 
 @app.get("/api/vpns")
