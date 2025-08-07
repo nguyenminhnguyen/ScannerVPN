@@ -34,37 +34,42 @@ class VPNService:
         for var, value in old_proxies.items():
             os.environ[var] = value
     
-    async def fetch_vpns(self) -> List[Dict]:
+    def fetch_vpns_sync(self) -> List[Dict]:
         """
-        Lấy danh sách VPN từ proxy server.
-        Controller chỉ forward request để lấy VPN list cho assignment.
+        Sync version - Lấy danh sách VPN từ proxy server.
         """
         old_proxies = self.clear_proxy_env()
         
         try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{self.proxy_node}/vpns", timeout=10)
-                response.raise_for_status()
-                
-                vpn_list = response.json()
-                print(f"[*] Controller fetched {len(vpn_list)} VPNs from proxy node")
-                
-                # Convert to standard format nếu cần
-                if isinstance(vpn_list, list) and vpn_list:
-                    if isinstance(vpn_list[0], str):
-                        # Convert filename list to VPN objects
-                        return [{"filename": vpn, "hostname": vpn.replace('.ovpn', '')} for vpn in vpn_list]
-                    else:
-                        return vpn_list
-                return []
-                
+            import requests
+            response = requests.get(f"{self.proxy_node}/vpns", timeout=10)
+            response.raise_for_status()
+            
+            vpn_list = response.json()
+            print(f"[*] Controller fetched {len(vpn_list)} VPNs from proxy node")
+            
+            # Convert to standard format nếu cần
+            if isinstance(vpn_list, list) and vpn_list:
+                if isinstance(vpn_list[0], str):
+                    # Convert filename list to VPN objects
+                    return [{"filename": vpn, "hostname": vpn.replace('.ovpn', '')} for vpn in vpn_list]
+                else:
+                    return vpn_list
+            return []
+            
         except Exception as e:
             print(f"[!] Controller error fetching VPNs from proxy: {e}")
-            # Fallback: return empty list if proxy not available
             return []
         finally:
             self.restore_proxy_env(old_proxies)
+
+    async def fetch_vpns(self) -> List[Dict]:
+        """
+        Async wrapper cho sync method
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.fetch_vpns_sync)
     
     def fetch_proxies(self) -> List[str]:
         """Lấy danh sách proxy từ proxy server"""
