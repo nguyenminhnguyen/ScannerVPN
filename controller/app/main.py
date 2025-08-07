@@ -38,6 +38,7 @@ def health():
     """
     Health check endpoint.
     """
+    logger.info("Health check endpoint called")
     return {"status": "ok", "tools_loaded": len(TOOLS)}
 
 def get_db():
@@ -250,6 +251,15 @@ async def debug_vpn_service():
             "vpn_service_status": "error",
             "error": str(e)
         }
+
+@app.get("/debug/info")
+def debug_info():
+    """Simple debug endpoint"""
+    return {
+        "message": "Debug endpoint working",
+        "vpn_service_exists": vpn_service is not None,
+        "vpn_proxy_node": getattr(vpn_service, 'proxy_node', 'Not found')
+    }
 
 # ============ VPN API Endpoints ============
 
