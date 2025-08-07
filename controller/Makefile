@@ -20,9 +20,8 @@ help:
 	@echo "  make health      Health check controller"
 
 build:
-	eval $(minikube docker-env)
 	@echo "🔨 Building Controller image..."
-	docker build -f Dockerfile -t $(REGISTRY)/controller:$(TAG) .
+	@eval $$(minikube docker-env); docker build -f Dockerfile -t $(REGISTRY)/controller:$(TAG) .
 	@echo "✅ Controller image built: $(REGISTRY)/controller:$(TAG)"
 
 push: build
