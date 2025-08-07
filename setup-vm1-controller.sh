@@ -1,45 +1,59 @@
 #!/bin/bash
-# Setup script cho VM1 (Controller)
+# Setup script cho VM1 (Controller trên Kubernetes)
 # IP VM1: 10.102.199.42
 # IP VM2: 10.102.199.37
 
-echo "=== Setting up Controller on VM1 ==="
+echo "=== Setting up Controller on VM1 with Kubernetes ==="
+
+# Setup Minikube environment
+echo "Setting up Minikube environment..."
+eval $(minikube docker-env)
 
 # Build Controller image
 echo "Building Controller image..."
-docker build -f controller/Dockerfile -t scanner-controller .
+docker build -t nguyenminhnguyen/controller:latest controller/
 
-# Create data directory
-echo "Creating data directory..."
-mkdir -p $HOME/scanner-data
+# Deploy Kubernetes manifests for Controller
+echo "Deploying Controller to Kubernetes..."
+kubectl apply -f manifests/namespace.yaml
+kubectl apply -f manifests/controller-rbac.yaml
+kubectl apply -f manifests/controller-deployment.yaml
+kubectl apply -f manifests/controller-service.yaml
 
-# Stop existing container if running
-echo "Stopping existing container..."
-docker stop scanner-controller 2>/dev/null || true
-docker rm scanner-controller 2>/dev/null || true
+# Wait for deployment
+echo "Waiting for Controller deployment to be ready..."
+kubectl wait --for=condition=available --timeout=300s deployment/controller -n scan-system
 
-# Run Controller container
-echo "Running Controller container..."
-docker run -d \
-  --name scanner-controller \
-  -p 8000:8000 \
-  -e DATABASE_URL=sqlite:///./data/scan_results.db \
-  -e SCANNER_NODE_URL=http://10.102.199.37:8002 \
-  -v $HOME/scanner-data:/app/data \
-  --restart unless-stopped \
-  scanner-controller
+# Port forward Controller API
+echo "Setting up port forwarding for Controller..."
+kubectl port-forward -n scan-system svc/controller 8000:8000 --address=0.0.0.0 &
+CONTROLLER_PORT_FORWARD_PID=$!
 
 # Check status
-echo "Checking container status..."
-docker ps | grep scanner-controller
-docker logs scanner-controller --tail 10
+echo "Checking deployment status..."
+kubectl get all -n scan-system
 
 echo "=== Controller setup complete ==="
-echo "Controller URL: http://10.102.199.42:8000"
-echo "Scanner Node URL: http://10.102.199.37:8002"
+echo "Controller API URL: http://10.102.199.42:8000"
+echo "Controller Port forward PID: $CONTROLLER_PORT_FORWARD_PID"
 
-# Test commands
+# Test Controller API
 echo ""
-echo "Test commands:"
-echo "curl http://localhost:8000/health"
-echo "curl http://localhost:8000/api/tools"
+echo "Testing Controller API..."
+sleep 5
+curl -s http://localhost:8000/health | jq . || echo "Controller not ready yet"
+
+echo ""
+echo "Available API endpoints:"
+echo "- Health check: curl http://10.102.199.42:8000/health"
+echo "- VPN endpoints: curl http://10.102.199.42:8000/api/vpns"
+echo "- Scan endpoints: curl -X POST http://10.102.199.42:8000/api/scan/dns-lookup"
+
+# Save port forward PID for later cleanup
+echo $CONTROLLER_PORT_FORWARD_PID > /tmp/controller-port-forward.pid
+echo "Controller port forward PID saved to /tmp/controller-port-forward.pid"
+
+echo ""
+echo "=== Environment Variables for testing ==="
+echo "export CONTROLLER_URL=http://10.102.199.42:8000"
+echo "export SCANNER_NODE_URL=http://10.102.199.37:8002"

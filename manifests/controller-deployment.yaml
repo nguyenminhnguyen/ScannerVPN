@@ -24,7 +24,11 @@ spec:
         - name: SCANNER_NODE_URL
           value: http://scanner-node-api.scan-system.svc.cluster.local:8000
         - name: CONTROLLER_CALLBACK_URL
-          value: http://192.168.49.2:8000  # Minikube IP (thay bằng IP thực tế)
+          value: http://10.102.199.42:8000  # Ubuntu VM external IP
+        - name: EXTERNAL_CONTROLLER_IP
+          value: "10.102.199.42"  # Controller VM IP
+        - name: VPN_PROXY_NODE
+          value: "http://10.102.199.36:8000"  # VPN proxy server URL cho assignment
         ports:
         - containerPort: 8000
         volumeMounts:

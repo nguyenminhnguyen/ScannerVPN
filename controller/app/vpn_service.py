@@ -5,8 +5,19 @@ from typing import List, Dict, Optional
 from collections import defaultdict
 
 class VPNService:
+    """
+    VPN Service cho Controller.
+    
+    Controller KHÔNG kết nối VPN trực tiếp, chỉ:
+    1. Lấy danh sách VPN từ proxy node
+    2. Assign VPN cho scan jobs
+    3. Forward VPN config đến Scanner nodes
+    
+    Scanner nodes mới thực sự kết nối VPN.
+    """
     def __init__(self, proxy_node_url: str = None):
-        self.proxy_node = proxy_node_url or os.getenv("PROXY_NODE", "http://10.102.199.36:8000")
+        # Controller chỉ làm trung gian điều phối VPN, không kết nối trực tiếp
+        self.proxy_node = proxy_node_url or os.getenv("VPN_PROXY_NODE", "http://10.102.199.36:8000")
     
     def clear_proxy_env(self):
         """Xóa proxy khỏi environment variables"""
@@ -23,16 +34,34 @@ class VPNService:
         for var, value in old_proxies.items():
             os.environ[var] = value
     
-    def fetch_vpns(self) -> List[str]:
-        """Lấy danh sách VPN từ proxy server"""
+    async def fetch_vpns(self) -> List[Dict]:
+        """
+        Lấy danh sách VPN từ proxy server.
+        Controller chỉ forward request để lấy VPN list cho assignment.
+        """
         old_proxies = self.clear_proxy_env()
         
         try:
-            response = requests.get(f"{self.proxy_node}/vpns", timeout=10)
-            response.raise_for_status()
-            return response.json()
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{self.proxy_node}/vpns", timeout=10)
+                response.raise_for_status()
+                
+                vpn_list = response.json()
+                print(f"[*] Controller fetched {len(vpn_list)} VPNs from proxy node")
+                
+                # Convert to standard format nếu cần
+                if isinstance(vpn_list, list) and vpn_list:
+                    if isinstance(vpn_list[0], str):
+                        # Convert filename list to VPN objects
+                        return [{"filename": vpn, "hostname": vpn.replace('.ovpn', '')} for vpn in vpn_list]
+                    else:
+                        return vpn_list
+                return []
+                
         except Exception as e:
-            print(f"[!] Lỗi khi fetch VPN list: {e}")
+            print(f"[!] Controller error fetching VPNs from proxy: {e}")
+            # Fallback: return empty list if proxy not available
             return []
         finally:
             self.restore_proxy_env(old_proxies)

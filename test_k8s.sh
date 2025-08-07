@@ -16,14 +16,16 @@ CONTROLLER_SERVICE="http://controller.scan-system.svc.cluster.local"
 
 usage() {
   cat <<EOF
-Usage: $0 {deploy|test|monitor|logs|cleanup|cleanup all}
+Usage: $0 {deploy|deploy-controller|deploy-scanner|test|monitor|logs|cleanup|cleanup all}
 
-  deploy        Triển khai Controller và các resource cần thiết
-  test          Chạy end-to-end test suite
-  monitor       Xem pod & service trong namespace
-  logs          Xem logs của controller
-  cleanup       Xóa deployment/controller, service/controller, jobs trong namespace
-  cleanup all   Xóa toàn bộ resources trong namespace, bao gồm cả namespace
+  deploy            Triển khai Controller và Scanner Node API (full deployment)
+  deploy-controller Chỉ triển khai Controller trên VM1
+  deploy-scanner    Chỉ triển khai Scanner Node API trên VM2
+  test              Chạy end-to-end test suite với VPN
+  monitor           Xem pod & service trong namespace
+  logs              Xem logs của controller
+  cleanup           Xóa deployment/controller, service/controller, jobs trong namespace
+  cleanup all       Xóa toàn bộ resources trong namespace, bao gồm cả namespace
 EOF
 }
 
