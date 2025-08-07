@@ -41,6 +41,8 @@ def scan(req: ScanRequest):
 
 @app.post("/api/scan/execute", status_code=201)
 def execute_scan(req: ScanRequest):
+    print(f"[DEBUG] Received payload: {req.dict()}")  # Debug line
+    print(f"[DEBUG] VPN assignment: {req.vpn_assignment}")  # Debug VPN specifically
     return _create_job(req)
 
 
