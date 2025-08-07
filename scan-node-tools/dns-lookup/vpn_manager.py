@@ -204,6 +204,43 @@ options timeout:2 attempts:3 rotate
             except:
                 pass
     
+    def setup_specific_vpn(self, vpn_config):
+        """Setup VPN từ config được assign từ Controller"""
+        # Lấy IP ban đầu
+        original_ip = self.get_current_ip()
+        print(f"[*] IP ban đầu: {original_ip}")
+        
+        # Kiểm tra môi trường container
+        self._check_container_capabilities()
+        
+        # Extract filename from VPN config
+        vpn_filename = vpn_config.get('filename')
+        if not vpn_filename:
+            print("[!] VPN config missing filename")
+            return False
+        
+        print(f"[+] Connecting to assigned VPN: {vpn_filename}")
+        print(f"    - Hostname: {vpn_config.get('hostname', 'Unknown')}")
+        print(f"    - Country: {vpn_config.get('country', 'Unknown')}")
+        
+        vpn_path = self.download_vpn(vpn_filename)
+        if vpn_path and self.connect_vpn(vpn_path):
+            # Kiểm tra IP sau khi kết nối
+            new_ip = self.get_current_ip()
+            print(f"[+] IP sau VPN: {new_ip}")
+            
+            # Kiểm tra VPN có hoạt động không
+            if self.is_vpn_working():
+                print(f"[+] Assigned VPN connected successfully! IP: {original_ip} -> {new_ip}")
+                return True
+            else:
+                print(f"[!] Assigned VPN not working properly")
+                self.disconnect_vpn()
+                return False
+        
+        print(f"[!] Failed to connect to assigned VPN: {vpn_filename}")
+        return False
+    
     def setup_random_vpn(self):
         """Setup VPN ngẫu nhiên"""
         # Lấy IP ban đầu

@@ -58,19 +58,48 @@ if __name__ == "__main__":
     vpn_connected = False
     network_info = {}
     
+    # Lấy VPN assignment từ Controller (nếu có)
+    assigned_vpn = None
+    controller_url = os.getenv("CONTROLLER_CALLBACK_URL")
+    vpn_assignment = os.getenv("VPN_ASSIGNMENT")  # VPN được assign từ Controller
+    
+    if vpn_assignment:
+        try:
+            assigned_vpn = json.loads(vpn_assignment)
+            print(f"[*] Received VPN assignment from Controller: {assigned_vpn.get('hostname', 'Unknown')}")
+        except json.JSONDecodeError as e:
+            print(f"[!] Failed to parse VPN assignment: {e}")
+    
     # Thử setup VPN (optional - có thể skip nếu proxy server không available)
     try:
         print("[*] Checking initial network status...")
         initial_info = vpn_manager.get_network_info()
         print(f"[*] Initial IP: {initial_info['public_ip']}")
         
-        if vpn_manager.setup_random_vpn():
-            print("[+] VPN setup completed!")
-            vpn_manager.print_vpn_status()
-            network_info = vpn_manager.get_network_info()
-            vpn_connected = True
+        # Sử dụng assigned VPN nếu có, nếu không thì dùng random
+        if assigned_vpn:
+            if vpn_manager.setup_specific_vpn(assigned_vpn):
+                print(f"[+] Connected to assigned VPN: {assigned_vpn.get('hostname', 'Unknown')}")
+                vpn_manager.print_vpn_status()
+                network_info = vpn_manager.get_network_info()
+                vpn_connected = True
+            else:
+                print("[!] Failed to connect to assigned VPN, trying random...")
+                if vpn_manager.setup_random_vpn():
+                    print("[+] Connected to random VPN as fallback!")
+                    vpn_manager.print_vpn_status()
+                    network_info = vpn_manager.get_network_info()
+                    vpn_connected = True
         else:
-            print("[!] VPN connection failed, continuing without VPN...")
+            # Fallback to random VPN nếu không có assignment
+            print("[*] No VPN assignment from Controller, using random VPN...")
+            if vpn_manager.setup_random_vpn():
+                print("[+] VPN setup completed!")
+                vpn_manager.print_vpn_status()
+                network_info = vpn_manager.get_network_info()
+                vpn_connected = True
+            else:
+                print("[!] VPN connection failed, continuing without VPN...")
     except Exception as e:
         print(f"[!] VPN setup error: {e}, continuing without VPN...")
     

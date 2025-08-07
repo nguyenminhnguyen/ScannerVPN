@@ -9,6 +9,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from app import models, schemas, database
+from app.vpn_service import VPNService
 
 # Thiết lập logging
 logging.basicConfig(level=logging.INFO)
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 # Tạo bảng nếu chưa có
 models.Base.metadata.create_all(bind=database.engine)
+
+# Khởi tạo VPN Service
+vpn_service = VPNService()
 
 app = FastAPI(
     title="Scanner Controller",
@@ -162,14 +166,31 @@ def create_scan(
 
 def call_scanner_node(tool: str, targets: List[str], options: Dict[str, Any], job_id: str, scanner_url: str):
     """
-    Gọi Scanner Node API để thực hiện scan.
+    Gọi Scanner Node API để thực hiện scan với VPN assignment.
     """
+    # Lấy VPN assignment cho job này
+    vpn_assignment = None
+    try:
+        import asyncio
+        # Get random VPN for this job
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        vpns = loop.run_until_complete(vpn_service.fetch_vpns())
+        if vpns:
+            import random
+            vpn_assignment = random.choice(vpns)
+            logger.info(f"Assigned VPN {vpn_assignment.get('hostname', 'Unknown')} to job {job_id}")
+        loop.close()
+    except Exception as e:
+        logger.warning(f"Failed to assign VPN for job {job_id}: {e}")
+    
     payload = {
         "tool": tool,
         "targets": targets,
         "options": options,
         "job_id": job_id,
-        "controller_callback_url": os.getenv("CONTROLLER_CALLBACK_URL", "http://controller:8000")
+        "controller_callback_url": os.getenv("CONTROLLER_CALLBACK_URL", "http://controller:8000"),
+        "vpn_assignment": vpn_assignment
     }
     
     response = httpx.post(
@@ -200,3 +221,101 @@ def port_scan_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
 def httpx_scan_endpoint(req: ToolRequest, db: Session = Depends(get_db)):
     scan_req = schemas.ScanJobRequest(tool="httpx-scan", targets=req.targets, options=req.options)
     return create_scan(scan_req, db)
+
+# ============ VPN API Endpoints ============
+
+@app.get("/api/vpns")
+async def get_available_vpns():
+    """
+    Lấy danh sách VPN có sẵn từ VPN proxy node.
+    """
+    try:
+        vpns = await vpn_service.fetch_vpns()
+        logger.info(f"Fetched {len(vpns)} VPNs from proxy node")
+        return {
+            "status": "success",
+            "total": len(vpns),
+            "vpns": vpns
+        }
+    except Exception as e:
+        logger.error(f"Error fetching VPNs: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch VPNs: {e}")
+
+@app.get("/api/vpns/by-country")
+async def get_vpns_by_country():
+    """
+    Lấy danh sách VPN phân loại theo quốc gia.
+    """
+    try:
+        vpns = await vpn_service.fetch_vpns()
+        categorized = await vpn_service.categorize_vpns_by_country(vpns)
+        logger.info(f"Categorized VPNs into {len(categorized)} countries")
+        return {
+            "status": "success",
+            "countries": categorized
+        }
+    except Exception as e:
+        logger.error(f"Error categorizing VPNs: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to categorize VPNs: {e}")
+
+@app.get("/api/vpns/random")
+async def get_random_vpn(country: str = Query(None, description="Country code filter (optional)")):
+    """
+    Lấy một VPN ngẫu nhiên, có thể lọc theo quốc gia.
+    """
+    try:
+        vpns = await vpn_service.fetch_vpns()
+        
+        if country:
+            # Lọc theo quốc gia nếu được chỉ định
+            categorized = await vpn_service.categorize_vpns_by_country(vpns)
+            if country.upper() not in categorized:
+                raise HTTPException(status_code=404, detail=f"No VPNs found for country: {country}")
+            
+            available_vpns = categorized[country.upper()]
+        else:
+            available_vpns = vpns
+        
+        if not available_vpns:
+            raise HTTPException(status_code=404, detail="No VPNs available")
+        
+        import random
+        selected_vpn = random.choice(available_vpns)
+        logger.info(f"Selected random VPN: {selected_vpn.get('country', 'Unknown')} - {selected_vpn.get('hostname', 'N/A')}")
+        
+        return {
+            "status": "success",
+            "vpn": selected_vpn
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error selecting random VPN: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to select VPN: {e}")
+
+@app.get("/api/vpns/countries")
+async def get_available_countries():
+    """
+    Lấy danh sách các quốc gia có VPN available.
+    """
+    try:
+        vpns = await vpn_service.fetch_vpns()
+        categorized = await vpn_service.categorize_vpns_by_country(vpns)
+        
+        countries = []
+        for country_code, vpn_list in categorized.items():
+            countries.append({
+                "code": country_code,
+                "count": len(vpn_list),
+                "sample_hostname": vpn_list[0].get('hostname', 'N/A') if vpn_list else None
+            })
+        
+        logger.info(f"Found VPNs in {len(countries)} countries")
+        return {
+            "status": "success",
+            "total_countries": len(countries),
+            "countries": countries
+        }
+    except Exception as e:
+        logger.error(f"Error getting country list: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get countries: {e}")

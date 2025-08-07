@@ -24,6 +24,7 @@ class ScanRequest(BaseModel):
     options: Dict[str, Any] = {}
     job_id: Optional[str] = None
     controller_callback_url: Optional[str] = None
+    vpn_assignment: Optional[Dict[str, Any]] = None  # VPN config từ Controller
 
     class Config:
         extra = Extra.ignore  # ignore additional fields like scanner_node_url
@@ -67,6 +68,13 @@ def _create_job(req: ScanRequest):
     # Thêm job ID nếu có
     if req.job_id:
         env_vars.append(client.V1EnvVar(name="JOB_ID", value=req.job_id))
+    
+    # Thêm VPN assignment nếu có
+    if req.vpn_assignment:
+        import json
+        vpn_json = json.dumps(req.vpn_assignment)
+        env_vars.append(client.V1EnvVar(name="VPN_ASSIGNMENT", value=vpn_json))
+        print(f"[*] Added VPN assignment to job: {req.vpn_assignment.get('hostname', 'Unknown')}")
     
     container = client.V1Container(
         name=req.tool,
